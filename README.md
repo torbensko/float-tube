@@ -21,10 +21,15 @@ No Xcode project — just `swiftc` and a hand-rolled `.app` bundle.
 | `Cmd-0` | Home (youtube.com) |
 | `Cmd-R` | Reload |
 | `Cmd-[` | Back |
+| `Cmd-J` | Snap to top-right corner |
 | `Cmd-T` | Toggle float-on-top |
 | `Cmd-I` | Toggle click-through |
 | `Cmd-=` / `Cmd--` | Less / more transparent |
 | `Cmd-Q` | Quit |
+
+The snap button also sits in the titlebar. Clicking it repeatedly cycles
+through three sizes (1003x560, 752x420, 501x280), always parked in the
+top-right corner of whichever display the window is currently on.
 
 Click-through makes the window inert so you can work "through" it. To get out
 of it, click the Dock icon — that reactivates the app and gets you back to the

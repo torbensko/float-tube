@@ -14,6 +14,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     var web: WKWebView!
     var popup: NSWindow?
 
+    // Whole-window sizes for the snap button, measured off the screenshot.
+    // First click gives that size; repeated clicks step down the same shape.
+    let snapSizes = [NSSize(width: 1003, height: 560),
+                     NSSize(width: 752,  height: 420),
+                     NSSize(width: 501,  height: 280)]
+    var snapIndex = -1
+
     var opacity: CGFloat = 1.0
     var pinned = true
     var clickThrough = false
@@ -50,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         panel.contentView = web
         panel.setFrameAutosaveName("FloatTubeMain")   // remembers size + position across launches
         if panel.frame.origin == .zero { panel.center() }
+        addSnapButton()
         panel.makeKeyAndOrderFront(nil)
 
         NSApp.activate(ignoringOtherApps: true)
@@ -62,6 +70,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         panel.makeKeyAndOrderFront(nil)
         return true
+    }
+
+    // MARK: - snap to corner
+
+    func addSnapButton() {
+        let button = NSButton(title: "", target: self, action: #selector(snapTopRight))
+        button.bezelStyle = .texturedRounded
+        button.isBordered = false
+        button.toolTip = "Snap to top-right corner (Cmd-J)"
+        if let img = NSImage(systemSymbolName: "arrow.up.right.square",
+                             accessibilityDescription: "Snap to top-right corner") {
+            button.image = img
+            button.imagePosition = .imageOnly
+        } else {
+            button.title = "Snap"
+        }
+        button.frame = NSRect(x: 4, y: 0, width: 28, height: 22)
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 36, height: 22))
+        container.addSubview(button)
+
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.view = container
+        accessory.layoutAttribute = .right
+        panel.addTitlebarAccessoryViewController(accessory)
+    }
+
+    @objc func snapTopRight() {
+        guard let screen = panel.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame        // already excludes menu bar and Dock
+        let margin: CGFloat = 16
+
+        snapIndex = (snapIndex + 1) % snapSizes.count
+        var frame = NSRect(origin: .zero, size: snapSizes[snapIndex])
+
+        // Never let a snap push the window off a smaller display.
+        frame.size.width  = min(frame.width,  visible.width  - margin * 2)
+        frame.size.height = min(frame.height, visible.height - margin * 2)
+
+        frame.origin.x = visible.maxX - frame.width  - margin
+        frame.origin.y = visible.maxY - frame.height - margin
+
+        panel.setFrame(frame, display: true, animate: true)
     }
 
     // MARK: - window behaviour
@@ -128,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         appMenu.addItem(withTitle: "Home", action: #selector(goHome), keyEquivalent: "0")
         appMenu.addItem(withTitle: "Reload", action: #selector(reload), keyEquivalent: "r")
         appMenu.addItem(withTitle: "Back", action: #selector(goBack), keyEquivalent: "[")
+        appMenu.addItem(withTitle: "Snap to top-right", action: #selector(snapTopRight), keyEquivalent: "j")
         appMenu.addItem(.separator())
 
         pinItem = appMenu.addItem(withTitle: "Float on top", action: #selector(togglePin), keyEquivalent: "t")
