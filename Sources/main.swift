@@ -209,6 +209,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         return popWeb
     }
 
+    // If the WebKit content process dies, the view goes blank white and the
+    // app looks broken with no visible cause. Reload instead of sitting there.
+    func webViewWebContentProcessDidTerminate(_ wv: WKWebView) {
+        wv.reload()
+        if wv.url == nil { wv.load(URLRequest(url: homeURL)) }
+    }
+
     func webViewDidClose(_ wv: WKWebView) {
         popup?.close()
         popup = nil
