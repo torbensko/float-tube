@@ -28,8 +28,11 @@ No Xcode project — just `swiftc` and a hand-rolled `.app` bundle.
 | `Cmd-Q` | Quit |
 
 The snap button also sits in the titlebar. Clicking it repeatedly cycles
-through three sizes (1003x560, 752x420, 501x280), always parked in the
+through three sizes (1003x560, 752x420, 501x280), parked flush into the
 top-right corner of whichever display the window is currently on.
+
+Closing the window hides it; it does not quit. Get it back from the menu bar
+icon or the Dock icon. Cmd-Q is the only thing that actually quits.
 
 Click-through makes the window inert so you can work "through" it. To get out
 of it, click the Dock icon — that reactivates the app and gets you back to the

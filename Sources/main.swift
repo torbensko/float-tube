@@ -8,11 +8,12 @@ let safariUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.
 
 let homeURL = URL(string: "https://www.youtube.com")!
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, WKNavigationDelegate {
 
     var panel: NSPanel!
     var web: WKWebView!
     var popup: NSWindow?
+    var statusItem: NSStatusItem!
 
     // Whole-window sizes for the snap button, measured off the screenshot.
     // First click gives that size; repeated clicks step down the same shape.
@@ -56,19 +57,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         panel.isMovableByWindowBackground = true
         panel.contentView = web
         panel.setFrameAutosaveName("FloatTubeMain")   // remembers size + position across launches
+        panel.delegate = self
         if panel.frame.origin == .zero { panel.center() }
+        ensureOnScreen()
         addSnapButton()
+        addStatusItem()
         panel.makeKeyAndOrderFront(nil)
 
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { true }
+    // Closing must NOT quit. On a .utilityWindow the close button is tiny and
+    // sits exactly where you grab to drag the window into a corner; treating
+    // that as "quit the app" loses the window with no way to tell where it went.
+    func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        panel.orderOut(nil)          // hide, keep the app and the page alive
+        return false
+    }
+
+    @objc func showPanel() {
+        ensureOnScreen()
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // If a saved frame leaves no grabbable titlebar on any display, recentre.
+    func ensureOnScreen() {
+        let f = panel.frame
+        let grab = NSPoint(x: f.midX, y: f.maxY - 10)
+        if !NSScreen.screens.contains(where: { $0.visibleFrame.contains(grab) }) {
+            panel.center()
+        }
+    }
+
+    // A permanent handle in the menu bar, so the window is always recoverable
+    // even when it is hidden or clicking through.
+    func addStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let img = NSImage(systemSymbolName: "play.rectangle.fill", accessibilityDescription: "FloatTube") {
+            statusItem.button?.image = img
+        } else {
+            statusItem.button?.title = "FT"
+        }
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Show FloatTube", action: #selector(showPanel), keyEquivalent: "")
+        menu.addItem(withTitle: "Snap to top-right", action: #selector(snapTopRight), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit FloatTube", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        for item in menu.items where item.action != #selector(NSApplication.terminate(_:)) { item.target = self }
+        statusItem.menu = menu
+    }
 
     // Clicking the Dock icon is the escape hatch out of click-through mode:
     // it activates the app so the menu bar is reachable again.
     func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        panel.makeKeyAndOrderFront(nil)
+        showPanel()
         return true
     }
 
@@ -100,14 +145,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
     @objc func snapTopRight() {
         guard let screen = panel.screen ?? NSScreen.main else { return }
         let visible = screen.visibleFrame        // already excludes menu bar and Dock
-        let margin: CGFloat = 16
+        let margin: CGFloat = 0                  // flush into the corner
 
         snapIndex = (snapIndex + 1) % snapSizes.count
         var frame = NSRect(origin: .zero, size: snapSizes[snapIndex])
 
         // Never let a snap push the window off a smaller display.
-        frame.size.width  = min(frame.width,  visible.width  - margin * 2)
-        frame.size.height = min(frame.height, visible.height - margin * 2)
+        frame.size.width  = min(frame.width,  visible.width)
+        frame.size.height = min(frame.height, visible.height)
 
         frame.origin.x = visible.maxX - frame.width  - margin
         frame.origin.y = visible.maxY - frame.height - margin
