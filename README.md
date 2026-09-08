@@ -47,12 +47,14 @@ actually quits.
 
 ## Releasing
 
-Tag a commit and GitHub Actions builds a universal (Apple Silicon + Intel)
-DMG, notarises it, and publishes a release:
+Bump `VERSION` and push to `main`. CI builds a universal (Apple Silicon +
+Intel) DMG, notarises it, creates the `v<version>` tag and publishes the
+release. Same shape as blint-agentic: the version file drives the release,
+not a hand-made tag, so the tag can never disagree with the version baked
+into the bundle.
 
-```
-git tag v1.0.0 && git push --tags
-```
+Pushing an unchanged `VERSION` is harmless — a Linux gate checks whether that
+release already exists and skips the macOS job entirely.
 
 The download URL is stable, so a website link never needs updating:
 

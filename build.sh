@@ -7,7 +7,8 @@ APP="build/FloatTube.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-VERSION="1.0"
+# Single source of truth for the version; CI releases when it changes.
+VERSION="$(tr -d "[:space:]" < VERSION)"
 BUILD_NUM="$(date +%Y%m%d%H%M)"
 
 cat > "$APP/Contents/Info.plist" << PLIST

@@ -1,21 +1,53 @@
 name: Release
 
-# Tag a commit to cut a release:  git tag v1.0.1 && git push --tags
+# Version-file driven, matching blint-agentic: bump VERSION and push. The gate
+# below skips anything already released, so a re-run is harmless.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['VERSION']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  # Cheap Linux gate, so macOS minutes are only spent on a real release.
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should-release: ${{ steps.version.outputs.should-release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read VERSION and check for an existing release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — nothing to do."
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Will release $TAG"
+            echo "should-release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
+    needs: check-version
+    if: needs.check-version.outputs.should-release == 'true'
     runs-on: macos-latest
 
     # Same secret names as blint-agentic and brainstorm, so the same values
-    # work here with nothing new to create. Lifted into env because the
-    # `secrets` context is not available in step-level `if:` conditions.
+    # work here. Lifted into env because the `secrets` context is not
+    # available in step-level `if:` conditions.
     env:
       CERTIFICATE_P12:      ${{ secrets.CERTIFICATE_P12 }}
       CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
@@ -56,7 +88,7 @@ jobs:
           UNIVERSAL: '1'
         run: |
           ./build.sh
-          ./tools/make-dmg.sh "${GITHUB_REF_NAME#v}"
+          ./tools/make-dmg.sh "${{ needs.check-version.outputs.version }}"
 
       - name: Notarise and staple
         if: env.APPLE_ID != ''
@@ -74,10 +106,12 @@ jobs:
         if: always()
         run: security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
+      # Creates the tag at this commit as part of publishing, so the tag can
+      # never disagree with the VERSION that produced the build.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: FloatTube ${{ github.ref_name }}
+          tag_name: ${{ needs.check-version.outputs.tag }}
+          name: FloatTube ${{ needs.check-version.outputs.version }}
           files: build/FloatTube.dmg
           generate_release_notes: true
