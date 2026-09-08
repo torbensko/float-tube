@@ -62,22 +62,23 @@ https://github.com/torbensko/floattube/releases/latest/download/FloatTube.dmg
 
 ### One-time signing setup
 
-Without notarisation the DMG still builds, but anyone who downloads it hits
-Gatekeeper and has to dig through System Settings > Privacy & Security to
-open it. Notarising removes that entirely. It needs a paid Apple Developer
-account, which we have.
+Uses the same five secrets as `blint-agentic` and `brainstorm`, with the same
+names and the same values:
 
-1. **Developer ID Application certificate** — Xcode > Settings > Accounts >
-   your team > Manage Certificates > "+" > Developer ID Application.
-   (An *Apple Development* certificate is NOT enough; that one is only for
-   running on your own machines.) Then export it from Keychain Access as a
-   `.p12` with a password.
-2. **App Store Connect API key** — App Store Connect > Users and Access >
-   Integrations > App Store Connect API > Team Keys. Create a key with the
-   *Developer* role, download the `.p8` (**you only get one chance**), and
-   note the Key ID and Issuer ID.
-3. Run `./tools/setup-signing.sh` and hand it those files. It pushes all six
-   secrets to the repo.
+| Secret | |
+|--------|--|
+| `CERTIFICATE_P12` | Developer ID Application cert, base64 of the `.p12` |
+| `CERTIFICATE_PASSWORD` | password for that `.p12` |
+| `APPLE_ID` | Apple ID email |
+| `APPLE_ID_PASSWORD` | app-specific password |
+| `APPLE_TEAM_ID` | team identifier |
+
+`./tools/setup-signing.sh` prompts for them and sets all five. GitHub secrets
+are write-only, so they can't be copied from another repo automatically —
+take them from wherever the originals live.
+
+Without them the DMG still builds and installs; it just trips Gatekeeper for
+anyone who downloads it.
 
 ## Notes for future me
 
