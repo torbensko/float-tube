@@ -57,7 +57,7 @@ git tag v1.0.0 && git push --tags
 The download URL is stable, so a website link never needs updating:
 
 ```
-https://github.com/torbensko/floattube/releases/latest/download/FloatTube.dmg
+https://github.com/torbensko/float-tube/releases/latest/download/FloatTube.dmg
 ```
 
 ### One-time signing setup
