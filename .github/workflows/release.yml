@@ -74,8 +74,12 @@ jobs:
           # A PKCS#12 is DER and must start 30 82. Report before failing, since
           # "Unknown format in import" alone says nothing about the cause.
           MAGIC="$(xxd -p -l 2 "$P12_PATH")"
-          if [ "$MAGIC" != "3082" ]; then
-            echo "::error::CERTIFICATE_P12 does not decode to a PKCS#12 file (starts with $MAGIC, expected 3082). Re-set it with: base64 -i YourCert.p12 | gh secret set CERTIFICATE_P12"
+          SIZE="$(wc -c < "$P12_PATH" | tr -d ' ')"
+          # A real Developer ID .p12 is several KB. Size matters as much as the
+          # magic bytes: a truncated secret still starts 30 82 and then fails
+          # deep inside the keychain with an unhelpful message.
+          if [ "$MAGIC" != "3082" ] || [ "$SIZE" -lt 1000 ]; then
+            echo "::error::CERTIFICATE_P12 is not a full PKCS#12 file (decoded $SIZE bytes, magic $MAGIC; expected several KB starting 3082). Re-set it with: base64 -i YourCert.p12 | gh secret set CERTIFICATE_P12 -R torbensko/float-tube"
             exit 1
           fi
 
