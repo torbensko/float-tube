@@ -34,14 +34,30 @@ PLIST
 
 cp Resources/FloatTube.icns "$APP/Contents/Resources/FloatTube.icns"
 
-swiftc -O \
-  -target arm64-apple-macos13.0 \
-  -framework Cocoa -framework WebKit \
-  -o "$APP/Contents/MacOS/FloatTube" \
-  Sources/main.swift
+BIN="$APP/Contents/MacOS/FloatTube"
 
-# Ad-hoc sign so macOS keeps the app's identity stable between builds —
-# without this the persistent cookie store can get thrown away.
-codesign --force --sign - "$APP"
+if [ "${UNIVERSAL:-0}" = "1" ]; then
+  # Release builds cover Intel too, since people we share with may be on one.
+  for ARCH in arm64 x86_64; do
+    swiftc -O -target ${ARCH}-apple-macos13.0 \
+      -framework Cocoa -framework WebKit \
+      -o "build/FloatTube-${ARCH}" Sources/main.swift
+  done
+  lipo -create -output "$BIN" build/FloatTube-arm64 build/FloatTube-x86_64
+  rm -f build/FloatTube-arm64 build/FloatTube-x86_64
+else
+  swiftc -O -target arm64-apple-macos13.0 \
+    -framework Cocoa -framework WebKit \
+    -o "$BIN" Sources/main.swift
+fi
+
+# Ad-hoc ("-") by default, which keeps the bundle identity stable between local
+# builds so the persistent cookie store survives. CI overrides this with a
+# Developer ID so the result can be notarised.
+IDENTITY="${CODESIGN_IDENTITY:--}"
+SIGN_ARGS=(--force --options runtime --sign "$IDENTITY")
+[ "$IDENTITY" = "-" ] || SIGN_ARGS+=(--timestamp)   # timestamping needs a real identity
+codesign "${SIGN_ARGS[@]}" "$APP"
+codesign --verify --strict "$APP"
 
 echo "Built $APP"

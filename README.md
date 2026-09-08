@@ -45,6 +45,40 @@ the Dock icon.
 Closing the window hides it, it doesn't quit. `Cmd-Q` is the only thing that
 actually quits.
 
+## Releasing
+
+Tag a commit and GitHub Actions builds a universal (Apple Silicon + Intel)
+DMG, notarises it, and publishes a release:
+
+```
+git tag v1.0.0 && git push --tags
+```
+
+The download URL is stable, so a website link never needs updating:
+
+```
+https://github.com/OWNER/floattube/releases/latest/download/FloatTube.dmg
+```
+
+### One-time signing setup
+
+Without notarisation the DMG still builds, but anyone who downloads it hits
+Gatekeeper and has to dig through System Settings > Privacy & Security to
+open it. Notarising removes that entirely. It needs a paid Apple Developer
+account, which we have.
+
+1. **Developer ID Application certificate** — Xcode > Settings > Accounts >
+   your team > Manage Certificates > "+" > Developer ID Application.
+   (An *Apple Development* certificate is NOT enough; that one is only for
+   running on your own machines.) Then export it from Keychain Access as a
+   `.p12` with a password.
+2. **App Store Connect API key** — App Store Connect > Users and Access >
+   Integrations > App Store Connect API > Team Keys. Create a key with the
+   *Developer* role, download the `.p8` (**you only get one chance**), and
+   note the Key ID and Issuer ID.
+3. Run `./tools/setup-signing.sh` and hand it those files. It pushes all six
+   secrets to the repo.
+
 ## Notes for future me
 
 - **The Safari user-agent in `Sources/main.swift` is load-bearing.** Google
@@ -57,8 +91,11 @@ actually quits.
   and sits exactly where you grab to drag the window into a corner — wiring
   that to "quit the app" made the window vanish with no crash log and no
   obvious cause.
-- Built arm64-only. Add an `x86_64` slice and `lipo` if an Intel Mac ever
-  needs it.
+- Local builds are arm64-only for speed; release builds set `UNIVERSAL=1`
+  and `lipo` in an Intel slice.
+- The `secrets` context is not available in a step's `if:` condition. Testing
+  it there fails silently and skips signing, so the workflow lifts secrets
+  into job-level `env` and tests that instead.
 
 ## Regenerating the icon
 
