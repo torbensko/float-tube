@@ -67,7 +67,17 @@ jobs:
           KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
           P12_PATH="$RUNNER_TEMP/certificate.p12"
 
-          echo "$CERTIFICATE_P12" | base64 --decode > "$P12_PATH"
+          # tr strips any stray whitespace/newlines the secret picked up when
+          # it was pasted; those alone can corrupt the decode.
+          printf '%s' "$CERTIFICATE_P12" | tr -d '[:space:]' | base64 --decode > "$P12_PATH"
+          echo "decoded $(wc -c < "$P12_PATH") bytes, type: $(file -b "$P12_PATH")"
+          # A PKCS#12 is DER and must start 30 82. Report before failing, since
+          # "Unknown format in import" alone says nothing about the cause.
+          MAGIC="$(xxd -p -l 2 "$P12_PATH")"
+          if [ "$MAGIC" != "3082" ]; then
+            echo "::error::CERTIFICATE_P12 does not decode to a PKCS#12 file (starts with $MAGIC, expected 3082). Re-set it with: base64 -i YourCert.p12 | gh secret set CERTIFICATE_P12"
+            exit 1
+          fi
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
