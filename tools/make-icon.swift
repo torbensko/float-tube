@@ -3,58 +3,38 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
-// Draws the app icon: a dark rounded tile with a floating "window" outline
-// and a play glyph, at whatever size is asked for.
-func drawIcon(size S: CGFloat) -> CGImage? {
+// One drawing, with a macOS silhouette for ICNS and a full-bleed web variant.
+func drawIcon(size S: CGFloat, fullBleed: Bool = false) -> CGImage? {
     let cs = CGColorSpaceCreateDeviceRGB()
     guard let ctx = CGContext(data: nil, width: Int(S), height: Int(S),
-                              bitsPerComponent: 8, bytesPerRow: 0, space: cs,
-                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-    ctx.setShouldAntialias(true)
-    ctx.interpolationQuality = .high
-
-    // macOS icons sit inside a margin rather than filling the canvas.
-    let inset = S * 0.055
-    let tile = CGRect(x: inset, y: inset, width: S - inset * 2, height: S - inset * 2)
-    let radius = tile.width * 0.2237                      // Big Sur-ish squircle
-
-    // Base tile, dark vertical gradient.
-    ctx.saveGState()
-    ctx.addPath(CGPath(roundedRect: tile, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    ctx.scaleBy(x: S / 1024, y: S / 1024)
+    let tile = fullBleed ? CGRect(x: 0, y: 0, width: 1024, height: 1024) : CGRect(x: 54, y: 54, width: 916, height: 916)
+    ctx.addPath(CGPath(roundedRect: tile, cornerWidth: fullBleed ? 0 : 205, cornerHeight: fullBleed ? 0 : 205, transform: nil))
     ctx.clip()
-    let grad = CGGradient(colorsSpace: cs,
-                          colors: [CGColor(red: 0.16, green: 0.17, blue: 0.20, alpha: 1),
-                                   CGColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1)] as CFArray,
-                          locations: [0, 1])!
-    ctx.drawLinearGradient(grad, start: CGPoint(x: 0, y: tile.maxY), end: CGPoint(x: 0, y: tile.minY), options: [])
+    let gradient = CGGradient(colorsSpace: cs, colors: [
+        CGColor(red: 0.16, green: 0.36, blue: 0.85, alpha: 1),
+        CGColor(red: 0.06, green: 0.13, blue: 0.39, alpha: 1)
+    ] as CFArray, locations: [0, 1])!
+    ctx.drawLinearGradient(gradient, start: CGPoint(x: 100, y: 1024), end: CGPoint(x: 900, y: 0), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+    // A quiet rear window makes the foreground player read as floating.
+    let rear = CGRect(x: 155, y: 200, width: 570, height: 405)
+    ctx.setFillColor(CGColor(red: 0.45, green: 0.78, blue: 1, alpha: 0.28))
+    ctx.addPath(CGPath(roundedRect: rear, cornerWidth: 48, cornerHeight: 48, transform: nil)); ctx.fillPath()
+    ctx.setStrokeColor(CGColor(red: 0.65, green: 0.85, blue: 1, alpha: 0.5)); ctx.setLineWidth(8)
+    ctx.addPath(CGPath(roundedRect: rear, cornerWidth: 48, cornerHeight: 48, transform: nil)); ctx.strokePath()
+    let front = CGRect(x: 286, y: 375, width: 590, height: 410)
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -24), blur: 40, color: CGColor(red: 0.02, green: 0.04, blue: 0.16, alpha: 0.4))
+    ctx.setFillColor(CGColor(red: 1, green: 0.29, blue: 0.36, alpha: 1))
+    ctx.addPath(CGPath(roundedRect: front, cornerWidth: 52, cornerHeight: 52, transform: nil)); ctx.fillPath()
     ctx.restoreGState()
-
-    // The "floating window": a rounded outline with a titlebar rule.
-    let w = tile.insetBy(dx: tile.width * 0.17, dy: tile.height * 0.225)
-    let wr = w.width * 0.075
-    ctx.setLineWidth(max(1, S * 0.018))
-    ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.85))
-    ctx.addPath(CGPath(roundedRect: w, cornerWidth: wr, cornerHeight: wr, transform: nil))
-    ctx.strokePath()
-
-    let barY = w.maxY - w.height * 0.19
-    ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.45))
-    ctx.setLineWidth(max(1, S * 0.013))
-    ctx.move(to: CGPoint(x: w.minX, y: barY))
-    ctx.addLine(to: CGPoint(x: w.maxX, y: barY))
-    ctx.strokePath()
-
-    // Play triangle, centred in the area below the titlebar.
-    let body = CGRect(x: w.minX, y: w.minY, width: w.width, height: barY - w.minY)
-    let t = min(body.width, body.height) * 0.42
-    let cx = body.midX + t * 0.12, cy = body.midY
-    ctx.setFillColor(CGColor(red: 0.94, green: 0.16, blue: 0.20, alpha: 1))
-    ctx.move(to: CGPoint(x: cx - t * 0.5, y: cy + t * 0.62))
-    ctx.addLine(to: CGPoint(x: cx - t * 0.5, y: cy - t * 0.62))
-    ctx.addLine(to: CGPoint(x: cx + t * 0.66, y: cy))
-    ctx.closePath()
-    ctx.fillPath()
-
+    ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.35))
+    ctx.fill(CGRect(x: 318, y: 714, width: 526, height: 4))
+    for x in [330, 354, 378] { ctx.fillEllipse(in: CGRect(x: x, y: 741, width: 10, height: 10)) }
+    ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+    ctx.move(to: CGPoint(x: 518, y: 460)); ctx.addLine(to: CGPoint(x: 518, y: 657)); ctx.addLine(to: CGPoint(x: 681, y: 558)); ctx.closePath(); ctx.fillPath()
     return ctx.makeImage()
 }
 
@@ -78,3 +58,11 @@ for (name, px) in variants {
     CGImageDestinationFinalize(dest)
 }
 print("wrote \(variants.count) images to \(outDir)")
+
+// No transparent border or rounded canvas in the website artwork.
+if CommandLine.arguments.count > 2, let image = drawIcon(size: 1024, fullBleed: true) {
+    let url = URL(fileURLWithPath: CommandLine.arguments[2])
+    guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { fatalError("Cannot create logo") }
+    CGImageDestinationAddImage(dest, image, nil)
+    guard CGImageDestinationFinalize(dest) else { fatalError("Cannot save logo") }
+}

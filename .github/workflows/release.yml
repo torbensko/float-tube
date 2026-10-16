@@ -1,131 +1,106 @@
-name: Release
-
-# Version-file driven, matching blint-agentic: bump VERSION and push. The gate
-# below skips anything already released, so a re-run is harmless.
+name: Build and release
 on:
   push:
     branches: [main]
-    paths: ['VERSION']
+    paths: [VERSION]
   workflow_dispatch:
-
 permissions:
-  contents: write
-
+  contents: read
+concurrency:
+  group: public-release
+  cancel-in-progress: false
 jobs:
-  # Cheap Linux gate, so macOS minutes are only spent on a real release.
-  check-version:
+  version:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-      should-release: ${{ steps.version.outputs.should-release }}
+      version: ${{ steps.check.outputs.version }}
+      release: ${{ steps.check.outputs.release }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Read VERSION and check for an existing release
-        id: version
+      - id: check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="$(tr -d '[:space:]' < VERSION)"
-          TAG="v$VERSION"
+          VERSION="$(cat VERSION)"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists — nothing to do."
-            echo "should-release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Will release $TAG"
-            echo "should-release=true" >> "$GITHUB_OUTPUT"
-          fi
-
-  release:
-    needs: check-version
-    if: needs.check-version.outputs.should-release == 'true'
-    runs-on: macos-latest
-
-    # Same secret names as blint-agentic and brainstorm, so the same values
-    # work here. Lifted into env because the `secrets` context is not
-    # available in step-level `if:` conditions.
-    env:
-      CERTIFICATE_P12:      ${{ secrets.CERTIFICATE_P12 }}
-      CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
-      APPLE_ID:             ${{ secrets.APPLE_ID }}
-      APPLE_ID_PASSWORD:    ${{ secrets.APPLE_ID_PASSWORD }}
-      APPLE_TEAM_ID:        ${{ secrets.APPLE_TEAM_ID }}
-
+          gh release list --limit 1000 --json tagName,isDraft > releases.json
+          VERSION="$VERSION" python3 - <<'PY'
+          import json, os
+          releases = json.load(open('releases.json'))
+          published = any(r['tagName'] == 'v' + os.environ['VERSION'] and not r['isDraft'] for r in releases)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write('release=' + str(not published).lower() + '\n')
+          PY
+  build:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: macos-15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-
-      # Signing is optional: with no secrets the build still yields a working
-      # ad-hoc DMG, it just trips Gatekeeper on other people's machines.
-      - name: Import signing certificate
-        if: env.CERTIFICATE_P12 != ''
+      - run: bash -n build.sh tools/*.sh
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+        run: ./tools/import-signing-certificate.sh
+      - name: Build universal app, notarize and package
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./tools/package-release.sh
+      - name: Remove temporary signing keychain
+        if: always()
         run: |
-          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
-          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
-          P12_PATH="$RUNNER_TEMP/certificate.p12"
-
-          # tr strips any stray whitespace/newlines the secret picked up when
-          # it was pasted; those alone can corrupt the decode.
-          printf '%s' "$CERTIFICATE_P12" | tr -d '[:space:]' | base64 --decode > "$P12_PATH"
-          echo "decoded $(wc -c < "$P12_PATH") bytes, type: $(file -b "$P12_PATH")"
-          # A PKCS#12 is DER and must start 30 82. Report before failing, since
-          # "Unknown format in import" alone says nothing about the cause.
-          MAGIC="$(xxd -p -l 2 "$P12_PATH")"
-          SIZE="$(wc -c < "$P12_PATH" | tr -d ' ')"
-          # A real Developer ID .p12 is several KB. Size matters as much as the
-          # magic bytes: a truncated secret still starts 30 82 and then fails
-          # deep inside the keychain with an unhelpful message.
-          if [ "$MAGIC" != "3082" ] || [ "$SIZE" -lt 1000 ]; then
-            echo "::error::CERTIFICATE_P12 is not a full PKCS#12 file (decoded $SIZE bytes, magic $MAGIC; expected several KB starting 3082). Re-set it with: base64 -i YourCert.p12 | gh secret set CERTIFICATE_P12 -R torbensko/float-tube"
+          if [[ -n "${KEYCHAIN_PATH:-}" && -f "$KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-release
+          path: |
+            build/FloatTube.dmg
+            build/FloatTube.zip
+            build/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Keep notarization results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notarization-results
+          path: build/notary-*.json
+          if-no-files-found: ignore
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-release
+          path: artifacts
+      - name: Publish completed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          TAG="v$RELEASE_VERSION"
+          gh release list --limit 1000 --json tagName,isDraft > releases.json
+          STATE="$(TAG="$TAG" python3 -c 'import json,os; r=next((r for r in json.load(open("releases.json")) if r["tagName"]==os.environ["TAG"]),None); print("missing" if r is None else "draft" if r["isDraft"] else "published")')"
+          [[ "$STATE" != published ]] || { echo 'Release already published; refusing to replace it.' >&2; exit 1; }
+          if [[ "$STATE" == missing ]]; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --draft \
+              --title "FloatTube $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
+          fi
+          EXISTING_TARGET="$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}" | tail -n1 | cut -f1)"
+          if [[ -n "$EXISTING_TARGET" && "$EXISTING_TARGET" != "$GITHUB_SHA" ]]; then
+            echo 'Existing version tag points at a different commit; bump VERSION.' >&2
             exit 1
           fi
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$P12_PATH" -k "$KEYCHAIN_PATH" -P "$CERTIFICATE_PASSWORD" \
-            -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
-
-          # Derive the identity rather than storing it as a sixth secret.
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | head -1 | awk -F'"' '{print $2}')
-          echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-          rm -f "$P12_PATH"
-
-      - name: Build (universal) and package DMG
-        env:
-          UNIVERSAL: '1'
-        run: |
-          ./build.sh
-          ./tools/make-dmg.sh "${{ needs.check-version.outputs.version }}"
-
-      - name: Notarise and staple
-        if: env.APPLE_ID != ''
-        run: |
-          xcrun notarytool submit build/FloatTube.dmg \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_ID_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait --timeout 30m
-          xcrun stapler staple build/FloatTube.dmg
-          # Prove a downloader will actually be allowed to open it.
-          spctl -a -t open --context context:primary-signature -vv build/FloatTube.dmg
-
-      - name: Clean up keychain
-        if: always()
-        run: security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
-
-      # Creates the tag at this commit as part of publishing, so the tag can
-      # never disagree with the VERSION that produced the build.
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.check-version.outputs.tag }}
-          name: FloatTube ${{ needs.check-version.outputs.version }}
-          files: build/FloatTube.dmg
-          generate_release_notes: true
+          gh release upload "$TAG" artifacts/FloatTube.dmg artifacts/FloatTube.zip artifacts/SHA256SUMS.txt --clobber
+          gh release edit "$TAG" --target "$GITHUB_SHA" --draft=false --latest

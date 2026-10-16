@@ -9,17 +9,20 @@ signed in.
 Built because Safari's picture-in-picture only works while audio is playing,
 which makes it useless for having a video parked in the corner of a screen.
 
+<img src="Resources/FloatTube.png" alt="FloatTube floating player logo" width="160">
+
 ## Install
 
-```
-./install.sh
-```
+[Download FloatTube for macOS](https://github.com/torbensko/float-tube/releases/latest/download/FloatTube.dmg).
+Open the DMG, drag FloatTube into Applications, then open it from there.
+The download supports Apple Silicon and Intel Macs running macOS 13 or later,
+and is Developer ID signed and notarised by Apple. To update, quit FloatTube and replace
+its copy in Applications; your settings and browser data remain in place.
 
-Builds the app, puts it in `/Applications`, and launches it. After that it's a
-normal app — double-click it, keep it in the Dock, whatever you like. Re-run
-`install.sh` to update in place; your login and window position survive.
+### Build from source
 
-`./build.sh` alone just builds into `./build` without installing.
+With Xcode Command Line Tools installed, run `./install.sh` to build, install
+and launch a local copy, or `./build.sh` to build into `./build` only.
 
 ## Using it
 
@@ -79,8 +82,11 @@ names and the same values:
 are write-only, so they can't be copied from another repo automatically —
 take them from wherever the originals live.
 
-Without them the DMG still builds and installs; it just trips Gatekeeper for
-anyone who downloads it.
+All five secrets are required for a public release. Missing credentials or failed
+notarization stop publication. Local development builds remain ad-hoc signed.
+
+The release includes a DMG, a ZIP, and SHA256 checksums. Both the app and DMG
+are notarized and stapled before the draft release is published.
 
 ## Notes for future me
 
@@ -107,6 +113,6 @@ changes:
 
 ```
 swiftc -O -o /tmp/makeicon tools/make-icon.swift
-/tmp/makeicon /tmp/FloatTube.iconset
+/tmp/makeicon /tmp/FloatTube.iconset Resources/FloatTube.png
 iconutil -c icns /tmp/FloatTube.iconset -o Resources/FloatTube.icns
 ```
